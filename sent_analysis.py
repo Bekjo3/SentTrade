@@ -6,10 +6,10 @@ def setup_sentiment_pipeline():
     return sentiment_pipeline
 
 def analyze_sentiment(sentiment_pipeline, data):
-    return [sentiment_pipeline(text)[0] for text in data]
+    results = [sentiment_pipeline(str(text))[0] for text in data]  # Ensure text is a string
+    scores = [1 if result['label'] == 'POSITIVE' else -1 for result in results]  # Convert to numerical scores
+    return scores
 
 def aggregate_sentiment(sentiments):
-    positive = sum(1 for s in sentiments if s['label'] == 'POSITIVE')
-    negative = sum(1 for s in sentiments if s['label'] == 'NEGATIVE')
-    score = positive - negative
+    score = sum(sentiments)  # Aggregate numerical scores
     return score

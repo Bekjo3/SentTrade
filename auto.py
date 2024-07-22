@@ -1,83 +1,90 @@
 import schedule
 import time
-from set_newsapi import setup_newsapi, fetch_news
+from set_newsapi import setup_news_api, scrape_news
 from set_praw import setup_reddit, scrape_reddit
 from sent_analysis import setup_sentiment_pipeline, analyze_sentiment, aggregate_sentiment
-from set_alpaca import setup_alpaca, trade_stock
-
-# # Twitter API credentials
-# twitter_bearer_token = 'AAAAAAAAAAAAAAAAAAAAABy%2FugEAAAAA%2FhKj7lzYcueScWU1HMLhQLQvnIo%3DLNCeOfSCT50De36cCHnb4UOoIqZGx1ALgEDkTOByrbwLzdWWwF'
-# # twitter_api_key = 'dOGIwiHNrI5fj7huLdZ9lp7p2' # API KEY
-# # twitter_api_secret_key = 'qeVimLjGf3VfaBRSpC3lDKNBie93KrrjnEwMPMbjMdssbITFR5'  # API KEY secret
-# # twitter_access_token = '972557461285720064-gfErvkdsG4BRWkpmoSsHf2cycaJ7VSL' 
-# # twitter_access_token_secret = 'jLdl60m5xxdSiR1HiXeq6wKl60c8zFDv0gRVzZag0NcDD' 
+from set_alpaca import setup_alpaca, trade_stock, get_historical_data, backtest_strategy
 
 # Reddit API credentials
-reddit_client_id='Z4r7dOwLw8A0fgFDAQZmmw',
-reddit_client_secret='	95z4rLyIfC0I8jJ3kefcuLSmul2YLA',
-reddit_user_agent='SentTrade'
+reddit_client_id=''
+reddit_client_secret=''
+reddit_user_agent=''
+reddit_username = ''
+reddit_password = ''
 
 # Alpaca API credentials
-alpaca_api_key = 'PKA6P2IYLJF6QXFC9TX4'
-alpaca_secret_key = 'lrkfeZ9c6jh3S4ge4Gx9dJks9VgIeBVuBoIy11QF'
+alpaca_api_key = ''
+alpaca_secret_key = ''
 
 # News API
-newsapi_key = '3197f525f664448abd31cb5b0ad6e6b3'
+news_api_key = ''
 
 # Setup APIs
-newsapi = setup_newsapi(newsapi_key)
-reddit = setup_reddit(reddit_client_id, reddit_client_secret, reddit_user_agent)
+news_client = setup_news_api(news_api_key)
+reddit = setup_reddit(reddit_client_id, reddit_client_secret, reddit_user_agent, reddit_username, reddit_password)
 alpaca = setup_alpaca(alpaca_api_key, alpaca_secret_key)
 sentiment_pipeline = setup_sentiment_pipeline()
 
 # List of stocks to analyze
-stocks = ['AAPL', 'GOOGL', 'AMZN', 'MSFT', 'TSLA']
+stocks = ['AAPL', 'GOOGL', 'AMZN', 'MSFT', 'TSLA', 'NVDA', 'META', 'DIS', 'WMT', 'NFLX']
 
 def job():
     best_stock = None
     best_score = float('-inf')
+    overall_negative = True
 
     for stock in stocks:
         try:
-            reddit_data = scrape_reddit(reddit, 'stocks', stock)
+            reddit_data = scrape_reddit(reddit, 'stocks', stock, limit=50)
+            print(f"Reddit data for {stock} fetched successfully.")
         except Exception as e:
-            print(f"Error fetching reddit posts: {e}")
+            print(f"Error fetching Reddit data for {stock}: {e}")
             reddit_data = []
 
         try:
-            news_data = fetch_news(newsapi, stock)
+            news_data = scrape_news(news_client, stock)
+            print(f"News data for {stock} fetched successfully.")
         except Exception as e:
-            print(f"Error fetching news: {e}")
+            print(f"Error fetching news data for {stock}: {e}")
             news_data = []
 
-        combined_data = reddit_data + news_data
-        if not combined_data:
-            print(f"No data for stock {stock}")
-            continue
-
         try:
-            sentiments = analyze_sentiment(sentiment_pipeline, combined_data)
-            sentiment_score = aggregate_sentiment(sentiments)
+            combined_data = reddit_data + news_data
+
+            if combined_data:
+                sentiments = analyze_sentiment(sentiment_pipeline, combined_data)
+                sentiment_score = aggregate_sentiment(sentiments)
+
+                print(f"Stock: {stock}, Sentiment Score: {sentiment_score}")
+
+                if sentiment_score > best_score:
+                    best_score = sentiment_score
+                    best_stock = stock
+
+                if sentiment_score > 0:
+                    overall_negative = False
         except Exception as e:
-            print(f"Error analyzing sentiment for {stock}: {e}")
-            sentiment_score = 0
+            print(f"Error processing sentiment for {stock}: {e}")
 
-        print(f"Stock: {stock}, Sentiment Score: {sentiment_score}")
+    if best_stock and not overall_negative:
+        trade_stock(alpaca, best_score, best_stock)
+        print(f"Traded Stock: {best_stock}, Score: {best_score}")
 
-        if sentiment_score > best_score:
-            best_score = sentiment_score
-            best_stock = stock
-
-    if best_stock:
+def backtest():
+    for stock in stocks[:5]:  # Limit to 5 stocks to reduce API calls
         try:
-            trade_stock(alpaca, best_score, best_stock)
-            print(f"Traded Stock: {best_stock}, Score: {best_score}")
+            performance_metrics = backtest_strategy(alpaca, sentiment_pipeline, news_client, reddit, stock, '2024-06-21', '2024-07-05')
+            print(f"Backtest Performance for {stock}: {performance_metrics}")
         except Exception as e:
-            print(f"Error trading stock {best_stock}: {e}")
+            print(f"Error backtesting stock {stock}: {e}")
 
+# Schedule job
 # schedule.every().day.at('09:00').do(job)
 # testing
 schedule.every(1).minutes.do(job)
+
+# Testing backtest
+backtest()
 
 while True:
     schedule.run_pending()
